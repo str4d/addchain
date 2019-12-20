@@ -1,5 +1,19 @@
 # addchain: Rust crate for generating addition chains
 
+## Usage
+
+To find a short addition chain:
+
+```rust
+let chain = addchain::find_shortest_chain(num_bigint::BigUint::from(87u32));
+```
+
+To build the steps for an addition chain:
+
+```rust
+let steps = addchain::build_addition_chain(num_bigint::BigUint::from(87u32));
+```
+
 ## License
 
 Licensed under either of

@@ -1,4 +1,81 @@
-//! Library for generating addition chains.
+//! *Library for generating addition chains*
+//!
+//! An addition chain `C` for some positive integer `n` is a sequence of integers that
+//! have the following properties:
+//!
+//! - The first integer is 1.
+//! - The last integer is `n`.
+//! - Integers only appear once.
+//! - Every integer is either the sum of two earlier integers, or double an earlier
+//!   integer.
+//!
+//! An addition chain corresponds to a series of `len(C) - 1` primitive operations
+//! (doubling and addition) that can be used to compute a target integer. An *optimal*
+//! addition chain for `n` has the shortest possible length, and therefore requires the
+//! fewest operations to compute `n`. This is particularly useful in cryptographic
+//! algorithms such as modular exponentiation, where `n` is usually at least `2^128`.
+//!
+//! # Example
+//!
+//! To compute the number 87, we can represent it in binary as `1010111`, and then using
+//! the binary double-and-add algorithm (where we double for every bit, and add 1 for
+//! every bit that is set to 1) we have the following steps:
+//! ```text
+//!  i | n_i | Operation | b_i
+//! ---|-----|-----------|-----
+//!  0 |  1  |           |  1
+//!  1 |  2  | n_0 * 2   |  0
+//!  2 |  4  | n_1 * 2   |  1
+//!  3 |  5  | n_2 + n_0 |
+//!  4 | 10  | n_3 * 2   |  0
+//!  5 | 20  | n_4 * 2   |  1
+//!  6 | 21  | n_5 + n_0 |
+//!  7 | 42  | n_6 * 2   |  1
+//!  8 | 43  | n_7 + n_0 |
+//!  9 | 86  | n_8 * 2   |  1
+//! 10 | 87  | n_9 + n_0 |
+//! ```
+//!
+//! This corresponds to the addition chain `[1, 2, 4, 5, 10, 20, 21, 42, 43, 86, 87]`,
+//! which has length 11. However, the optimal addition chain length for 87 is 10, and
+//! several addition chains can be constructed with optimal length. One such chain is
+//! `[1, 2, 3, 6, 7, 10, 20, 40, 80, 87]`, which corresponds to the following steps:
+//! ```text
+//!  i | n_i | Operation
+//! ---|-----|----------
+//!  0 |  1  |
+//!  1 |  2  | n_0 * 2
+//!  2 |  3  | n_1 + n_0
+//!  3 |  6  | n_2 * 2
+//!  4 |  7  | n_3 + n_0
+//!  5 | 10  | n_4 + n_2
+//!  6 | 20  | n_5 * 2
+//!  7 | 40  | n_6 * 2
+//!  8 | 80  | n_7 * 2
+//!  9 | 87  | n_8 + n_4
+//! ```
+//!
+//! # Usage
+//!
+//! ```
+//! use addchain::{build_addition_chain, Step};
+//! use num_bigint::BigUint;
+//!
+//! assert_eq!(
+//!     build_addition_chain(BigUint::from(87u32)),
+//!     vec![
+//!         Step::Double { index: 0 },
+//!         Step::Add { left: 1, right: 0 },
+//!         Step::Double { index: 2 },
+//!         Step::Add { left: 3, right: 0 },
+//!         Step::Add { left: 4, right: 2 },
+//!         Step::Double { index: 5 },
+//!         Step::Double { index: 6 },
+//!         Step::Double { index: 7 },
+//!         Step::Add { left: 8, right: 4 },
+//!     ],
+//! );
+//! ```
 
 use num_bigint::BigUint;
 use num_traits::One;
