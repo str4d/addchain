@@ -59,6 +59,12 @@ pub fn build_steps(chain: Vec<BigUint>) -> Result<Vec<Step>, Error> {
     Ok(steps)
 }
 
+/// Generates a series of steps that will compute an addition chain for the given number.
+/// The addition chain is the shortest we can find using all available algorithms.
+pub fn build_addition_chain(n: BigUint) -> Vec<Step> {
+    build_steps(find_shortest_chain(n)).expect("chain is valid")
+}
+
 #[cfg(test)]
 mod tests {
     use num_bigint::BigUint;
