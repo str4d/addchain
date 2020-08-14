@@ -13,6 +13,6 @@ edition = "2018"
 maintenance = { status = "experimental" }
 
 [dependencies]
-num-bigint = "0.2"
+num-bigint = "0.3"
 num-integer = "0.1"
 num-traits = "0.2"
