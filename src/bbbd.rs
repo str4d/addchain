@@ -68,7 +68,9 @@ fn minchain(n: BigUint) -> Chain {
 
 fn chain(n: BigUint, k: BigUint) -> Chain {
     let (q, r) = n.div_rem(&k);
-    if r.is_zero() || r.is_one() {
+    if r.is_zero() {
+        minchain(k) * minchain(q)
+    } else if r.is_one() {
         // We handle the r = 1 case here to prevent unnecessary recursion.
         minchain(k) * minchain(q) + r
     } else {
@@ -99,6 +101,26 @@ mod tests {
                 BigUint::from(40u32),
                 BigUint::from(80u32),
                 BigUint::from(87u32),
+            ]
+        );
+    }
+
+    #[test]
+    fn minchain_384() {
+        let chain = minchain(BigUint::from(384u32));
+        assert_eq!(
+            chain.0,
+            vec![
+                BigUint::from(1u32),
+                BigUint::from(2u32),
+                BigUint::from(3u32),
+                BigUint::from(6u32),
+                BigUint::from(12u32),
+                BigUint::from(24u32),
+                BigUint::from(48u32),
+                BigUint::from(96u32),
+                BigUint::from(192u32),
+                BigUint::from(384u32),
             ]
         );
     }
