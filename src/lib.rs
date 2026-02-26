@@ -103,8 +103,9 @@ pub enum Step {
 }
 
 /// Converts an addition chain into a series of steps.
+#[allow(clippy::needless_pass_by_value)]
 pub fn build_steps(chain: Vec<BigUint>) -> Result<Vec<Step>, Error> {
-    match chain.get(0) {
+    match chain.first() {
         Some(n) if n.is_one() => (),
         _ => return Err(Error::InvalidChain),
     }

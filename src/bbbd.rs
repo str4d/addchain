@@ -62,11 +62,11 @@ fn minchain(n: BigUint) -> Chain {
         // 2^(log(n) / 2) in the call to chain(). This is at odds with the definition of k
         // at the bottom of page 161; the latter gives the intended result.
         let k = &n / (BigUint::one() << (log_n / 2));
-        chain(n, k)
+        chain(&n, k)
     }
 }
 
-fn chain(n: BigUint, k: BigUint) -> Chain {
+fn chain(n: &BigUint, k: BigUint) -> Chain {
     let (q, r) = n.div_rem(&k);
     if r.is_zero() {
         minchain(k) * minchain(q)
@@ -74,7 +74,7 @@ fn chain(n: BigUint, k: BigUint) -> Chain {
         // We handle the r = 1 case here to prevent unnecessary recursion.
         minchain(k) * minchain(q) + r
     } else {
-        chain(k, r.clone()) * minchain(q) + r
+        chain(&k, r.clone()) * minchain(q) + r
     }
 }
 
