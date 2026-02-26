@@ -6,7 +6,10 @@ and this project adheres to Rust's notion of
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## Unreleased
+
+## [0.3.0] - 2026-02-26
 ### Changed
+- Migrated to `num-bigint 0.4`.
 - `addchain::build_steps` now takes a slice instead of a `Vec`.
 
 ## [0.2.1] - 2026-02-26
