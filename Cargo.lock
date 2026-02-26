@@ -2,7 +2,7 @@
 name = "addchain"
 version = "0.2.1"
 dependencies = [
- "num-bigint 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "num-bigint 0.4.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "num-integer 0.1.46 (registry+https://github.com/rust-lang/crates.io-index)",
  "num-traits 0.2.18 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -14,7 +14,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "num-bigint"
-version = "0.3.3"
+version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "autocfg 1.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -40,6 +40,6 @@ dependencies = [
 
 [metadata]
 "checksum autocfg 1.5.0 (registry+https://github.com/rust-lang/crates.io-index)" = "c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8"
-"checksum num-bigint 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)" = "5f6f7833f2cbf2360a6cfd58cd41a53aa7a90bd4c202f5b1c7dd2ed73c57b2c3"
+"checksum num-bigint 0.4.4 (registry+https://github.com/rust-lang/crates.io-index)" = "608e7659b5c3d7cba262d894801b9ec9d00de989e8a82bd4bef91d08da45cdc0"
 "checksum num-integer 0.1.46 (registry+https://github.com/rust-lang/crates.io-index)" = "7969661fd2958a5cb096e56c8e1ad0444ac2bbcd0061bd28660485a44879858f"
 "checksum num-traits 0.2.18 (registry+https://github.com/rust-lang/crates.io-index)" = "da0df0e5185db44f69b44f26786fe401b6c293d1907744beaa7fa62b2e5a517a"
