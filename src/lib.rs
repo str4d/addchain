@@ -103,8 +103,8 @@ pub enum Step {
 }
 
 /// Converts an addition chain into a series of steps.
-pub fn build_steps(chain: Vec<BigUint>) -> Result<Vec<Step>, Error> {
-    match chain.get(0) {
+pub fn build_steps(chain: &[BigUint]) -> Result<Vec<Step>, Error> {
+    match chain.first() {
         Some(n) if n.is_one() => (),
         _ => return Err(Error::InvalidChain),
     }
@@ -139,7 +139,7 @@ pub fn build_steps(chain: Vec<BigUint>) -> Result<Vec<Step>, Error> {
 /// Generates a series of steps that will compute an addition chain for the given number.
 /// The addition chain is the shortest we can find using all available algorithms.
 pub fn build_addition_chain(n: BigUint) -> Vec<Step> {
-    build_steps(find_shortest_chain(n)).expect("chain is valid")
+    build_steps(&find_shortest_chain(n)).expect("chain is valid")
 }
 
 #[cfg(test)]
@@ -151,7 +151,7 @@ mod tests {
     #[test]
     fn steps_from_valid_chains() {
         assert_eq!(
-            build_steps(vec![
+            build_steps(&[
                 BigUint::from(1u32),
                 BigUint::from(2u32),
                 BigUint::from(3u32),
@@ -163,7 +163,7 @@ mod tests {
         );
 
         assert_eq!(
-            build_steps(vec![
+            build_steps(&[
                 BigUint::from(1u32),
                 BigUint::from(2u32),
                 BigUint::from(4u32),
@@ -177,7 +177,7 @@ mod tests {
         );
 
         assert_eq!(
-            build_steps(vec![
+            build_steps(&[
                 BigUint::from(1u32),
                 BigUint::from(2u32),
                 BigUint::from(3u32),
@@ -207,13 +207,13 @@ mod tests {
     fn invalid_chains() {
         // First element is not one.
         assert_eq!(
-            build_steps(vec![BigUint::from(2u32), BigUint::from(3u32),]),
+            build_steps(&[BigUint::from(2u32), BigUint::from(3u32),]),
             Err(Error::InvalidChain),
         );
 
         // Missing an element of a pair.
         assert_eq!(
-            build_steps(vec![
+            build_steps(&[
                 BigUint::from(1u32),
                 BigUint::from(4u32),
                 BigUint::from(8u32),
