@@ -81,6 +81,7 @@ use num_bigint::BigUint;
 use num_traits::One;
 
 mod bbbd;
+mod bos_coster;
 mod cwm_asa;
 
 /// The error kinds returned by `addchain` APIs.
@@ -101,13 +102,16 @@ pub fn find_shortest_chain(n: BigUint) -> Vec<BigUint> {
 ///
 /// Equal-cost ties prefer BBBD.
 fn find_chain(n: &BigUint, cost_model: CostModel) -> Vec<BigUint> {
-    let bbbd = bbbd::find_shortest_chain(n.clone());
-    let cwm = cwm_asa::find_chain(n, cost_model);
-    if cost_model.cost(&cwm) < cost_model.cost(&bbbd) {
-        cwm
-    } else {
-        bbbd
+    let mut best = bbbd::find_shortest_chain(n.clone());
+    let algorithms: &[fn(&BigUint, CostModel) -> Vec<BigUint>] =
+        &[bos_coster::find_chain, cwm_asa::find_chain];
+    for algorithm in algorithms {
+        let candidate = algorithm(n, cost_model);
+        if cost_model.cost(&candidate) < cost_model.cost(&best) {
+            best = candidate;
+        }
     }
+    best
 }
 
 /// The relative cost of doubling and addition when selecting a chain.
@@ -215,7 +219,15 @@ mod tests {
             let n = BigUint::from(*value);
             let bbbd = crate::bbbd::find_shortest_chain(n.clone());
             let cwm = crate::cwm_asa::find_chain(&n, CostModel::Same);
-            let expected = if cwm.len() < bbbd.len() { cwm } else { bbbd };
+            let mut expected = if cwm.len() < bbbd.len() { cwm } else { bbbd };
+            let algorithms: &[fn(&BigUint, CostModel) -> Vec<BigUint>] =
+                &[crate::bos_coster::find_chain];
+            for algorithm in algorithms {
+                let candidate = algorithm(&n, CostModel::Same);
+                if candidate.len() < expected.len() {
+                    expected = candidate;
+                }
+            }
             assert_eq!(find_chain(&n, CostModel::Same), expected);
             assert_eq!(find_shortest_chain(n), expected);
         }
@@ -327,6 +339,20 @@ mod tests {
             let chain = super::find_shortest_chain(BigUint::from(n));
             assert_eq!(build_steps(chain.clone()), reference_steps(&chain));
         }
+    }
+
+    #[test]
+    fn supplied_exponent() {
+        let n = BigUint::parse_bytes(
+            b"39f6d3a994cebea4199cec0404d0ec02a9ded2017fff2dff7fffffff",
+            16,
+        )
+        .unwrap();
+        let chain = super::find_shortest_chain(n.clone());
+        assert_eq!(chain.last(), Some(&n));
+        assert!(chain.windows(2).all(|pair| pair[0] < pair[1]));
+        assert!(chain.len() - 1 <= 266);
+        assert!(build_steps(chain).is_ok());
     }
 
     #[test]

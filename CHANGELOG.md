@@ -8,6 +8,7 @@ and this project adheres to Rust's notion of
 ## [Unreleased]
 ### Added
 - Additional algorithms:
+  - Bos–Coster-derived window and addition-sequence heuristics
   - Cross Window Method with Addition Sequence Algorithm
 
 ### Changed
