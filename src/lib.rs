@@ -94,12 +94,37 @@ pub enum Error {
 /// available algorithms.
 #[allow(clippy::needless_pass_by_value)]
 pub fn find_shortest_chain(n: BigUint) -> Vec<BigUint> {
+    find_chain(&n, CostModel::Same)
+}
+
+/// Returns the lowest-cost addition chain we can find using all available algorithms.
+///
+/// Equal-cost ties prefer BBBD.
+fn find_chain(n: &BigUint, cost_model: CostModel) -> Vec<BigUint> {
     let bbbd = bbbd::find_shortest_chain(n.clone());
-    let cwm = cwm_asa::find_chain(&n);
-    if cwm.len() < bbbd.len() {
+    let cwm = cwm_asa::find_chain(n, cost_model);
+    if cost_model.cost(&cwm) < cost_model.cost(&bbbd) {
         cwm
     } else {
         bbbd
+    }
+}
+
+/// The relative cost of doubling and addition when selecting a chain.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CostModel {
+    /// Doubling and addition have the same cost, so fewer steps is better.
+    Same,
+}
+
+impl CostModel {
+    /// Scores a valid, nonempty addition chain.
+    ///
+    /// Smaller costs are better.
+    fn cost(self, chain: &[BigUint]) -> usize {
+        match self {
+            CostModel::Same => chain.len() - 1,
+        }
     }
 }
 
@@ -176,6 +201,25 @@ mod tests {
     use num_bigint::BigUint;
 
     use super::{build_steps, Error, Step};
+
+    #[test]
+    fn equal_cost_model() {
+        use super::{find_chain, find_shortest_chain, CostModel};
+
+        assert_eq!(CostModel::Same.cost(&[BigUint::from(1u32)]), 0);
+        assert_eq!(
+            CostModel::Same.cost(&[BigUint::from(1u32), BigUint::from(2u32)]),
+            1
+        );
+        for value in &[1u32, 2, 87, 255, 384] {
+            let n = BigUint::from(*value);
+            let bbbd = crate::bbbd::find_shortest_chain(n.clone());
+            let cwm = crate::cwm_asa::find_chain(&n, CostModel::Same);
+            let expected = if cwm.len() < bbbd.len() { cwm } else { bbbd };
+            assert_eq!(find_chain(&n, CostModel::Same), expected);
+            assert_eq!(find_shortest_chain(n), expected);
+        }
+    }
 
     #[test]
     fn steps_from_valid_chains() {

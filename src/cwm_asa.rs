@@ -27,18 +27,20 @@ use num_bigint::BigUint;
 use num_integer::Integer;
 use num_traits::{One, Zero};
 
+use crate::CostModel;
+
 /// Searches the parameter range used in Section 4, retaining the first candidate
 /// on ties. Capping the span at the input length avoids redundant windows.
-pub(super) fn find_chain(n: &BigUint) -> Vec<BigUint> {
+pub(super) fn find_chain(n: &BigUint, cost_model: CostModel) -> Vec<BigUint> {
     let bits = n.bits() as usize;
-    let mut best = chain(n, 1, 0);
+    let mut best = chain(n, 1, 0, cost_model);
     if n == &(BigUint::one() << (bits - 1)) {
         return best;
     }
     for k in 1..=20.min(bits) {
         for s in 0..=20.min(bits - k) {
-            let candidate = chain(n, k, s);
-            if candidate.len() < best.len() {
+            let candidate = chain(n, k, s, cost_model);
+            if cost_model.cost(&candidate) < cost_model.cost(&best) {
                 best = candidate;
             }
         }
@@ -48,25 +50,29 @@ pub(super) fn find_chain(n: &BigUint) -> Vec<BigUint> {
 
 /// Algorithm 7, with Algorithm 5's construction (lines 22–31) deferred until after
 /// selecting the precomputation.
-fn chain(n: &BigUint, k: usize, s: usize) -> Vec<BigUint> {
+fn chain(n: &BigUint, k: usize, s: usize, cost_model: CostModel) -> Vec<BigUint> {
     // Algorithm 7, line 1: obtain the used windows N from Algorithm 5.
     let windows = windows(n, k, s);
 
     // Algorithm 7, line 2: construct ASA(N).
     let mut sequence = addition_sequence(windows.iter().map(|w| w.1.clone()));
 
-    // Algorithm 7, lines 3–5: select the shorter precomputation. The original
-    // precomputation length is given in Section 3.2, pp. 276–277. For s=0,
-    // the odd dictionary has no additional 2. For s>0 and R=1, step (2)'s
-    // first power is the already-constructed 2.
+    // Algorithm 7, lines 3–5: select the lower-cost precomputation.
     let right = (k + 1) / 2;
-    let original_len = (1usize << (k - 1))
-        + if s == 0 {
-            0
-        } else {
-            s + usize::from(right > 1)
-        };
-    if original_len <= sequence.len() {
+    let original_cost = match cost_model {
+        // Section 3.2, pp. 276–277: length minus the initial 1. For s=0,
+        // the odd dictionary has no additional 2. For s>0 and R=1, step
+        // (2)'s first power is the already-constructed 2.
+        CostModel::Same => {
+            (1usize << (k - 1))
+                + if s == 0 {
+                    0
+                } else {
+                    s + usize::from(right > 1)
+                }
+        }
+    };
+    if original_cost <= cost_model.cost(&sequence) {
         sequence = precomputation(k, s);
     }
 
@@ -230,6 +236,7 @@ fn insert(sequence: &mut Vec<BigUint>, value: BigUint) {
 #[cfg(test)]
 mod tests {
     use super::{addition_sequence, chain, precomputation, windows};
+    use crate::CostModel;
     use num_bigint::BigUint;
     use num_traits::One;
 
@@ -259,7 +266,7 @@ mod tests {
             );
         }
         assert_eq!(extracted.len(), expected.len());
-        let result = chain(&n, 6, 3);
+        let result = chain(&n, 6, 3, CostModel::Same);
         validate(&result, &n);
     }
 
@@ -334,7 +341,7 @@ mod tests {
                 let result = crate::find_shortest_chain(n.clone());
                 let elapsed = start.elapsed();
                 // Also validate CWM-ASA itself when BBBD wins the comparison.
-                validate(&chain(n, 7, 3), n);
+                validate(&chain(n, 7, 3, CostModel::Same), n);
                 println!(
                     "{}-bit {}: BBBD {}, portfolio {}, {:?}",
                     bits,
@@ -360,7 +367,13 @@ mod tests {
                     } else {
                         s + usize::from(right > 1)
                     };
-                assert_eq!(precomputation(k, s).len() - 1, expected, "k={}, s={}", k, s);
+                assert_eq!(
+                    CostModel::Same.cost(&precomputation(k, s)),
+                    expected,
+                    "k={}, s={}",
+                    k,
+                    s
+                );
             }
         }
     }
@@ -386,7 +399,7 @@ mod tests {
                         reconstructed += window << *position;
                     }
                     assert_eq!(reconstructed, n);
-                    validate(&chain(&n, k, s), &n);
+                    validate(&chain(&n, k, s, CostModel::Same), &n);
                 }
             }
         }
