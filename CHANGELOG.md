@@ -10,6 +10,7 @@ and this project adheres to Rust's notion of
 - Additional algorithms:
   - Bos–Coster-derived window and addition-sequence heuristics
   - Cross Window Method with Addition Sequence Algorithm
+  - Kunihiro–Yamamoto Hybrid method
 
 ### Changed
 - Reduced `build_steps` pair-search work from cubic to quadratic in chain length

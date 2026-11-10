@@ -83,6 +83,7 @@ use num_traits::One;
 mod bbbd;
 mod bos_coster;
 mod cwm_asa;
+mod ky_hybrid;
 
 /// The error kinds returned by `addchain` APIs.
 #[derive(Debug, PartialEq)]
@@ -103,8 +104,11 @@ pub fn find_shortest_chain(n: BigUint) -> Vec<BigUint> {
 /// Equal-cost ties prefer BBBD.
 fn find_chain(n: &BigUint, cost_model: CostModel) -> Vec<BigUint> {
     let mut best = bbbd::find_shortest_chain(n.clone());
-    let algorithms: &[fn(&BigUint, CostModel) -> Vec<BigUint>] =
-        &[bos_coster::find_chain, cwm_asa::find_chain];
+    let algorithms: &[fn(&BigUint, CostModel) -> Vec<BigUint>] = &[
+        bos_coster::find_chain,
+        cwm_asa::find_chain,
+        ky_hybrid::find_chain,
+    ];
     for algorithm in algorithms {
         let candidate = algorithm(n, cost_model);
         if cost_model.cost(&candidate) < cost_model.cost(&best) {
@@ -221,7 +225,7 @@ mod tests {
             let cwm = crate::cwm_asa::find_chain(&n, CostModel::Same);
             let mut expected = if cwm.len() < bbbd.len() { cwm } else { bbbd };
             let algorithms: &[fn(&BigUint, CostModel) -> Vec<BigUint>] =
-                &[crate::bos_coster::find_chain];
+                &[crate::bos_coster::find_chain, crate::ky_hybrid::find_chain];
             for algorithm in algorithms {
                 let candidate = algorithm(&n, CostModel::Same);
                 if candidate.len() < expected.len() {
