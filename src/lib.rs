@@ -81,6 +81,7 @@ use num_bigint::BigUint;
 use num_traits::One;
 
 mod bbbd;
+mod cwm_asa;
 
 /// The error kinds returned by `addchain` APIs.
 #[derive(Debug, PartialEq)]
@@ -91,8 +92,15 @@ pub enum Error {
 
 /// Returns the shortest addition chain we can find for the given number, using all
 /// available algorithms.
+#[allow(clippy::needless_pass_by_value)]
 pub fn find_shortest_chain(n: BigUint) -> Vec<BigUint> {
-    bbbd::find_shortest_chain(n)
+    let bbbd = bbbd::find_shortest_chain(n.clone());
+    let cwm = cwm_asa::find_chain(&n);
+    if cwm.len() < bbbd.len() {
+        cwm
+    } else {
+        bbbd
+    }
 }
 
 /// A single step in computing an addition chain.
