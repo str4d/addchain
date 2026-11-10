@@ -110,28 +110,48 @@ pub fn build_steps(chain: Vec<BigUint>) -> Result<Vec<Step>, Error> {
         _ => return Err(Error::InvalidChain),
     }
 
-    let mut steps = vec![];
+    let increasing = chain.windows(2).all(|pair| pair[0] < pair[1]);
+    let mut steps = Vec::with_capacity(chain.len() - 1);
 
     for (i, val) in chain.iter().enumerate().skip(1) {
-        // Find the pair of previous values that add to this one
-        'search: for (j, left) in chain[..i].iter().enumerate() {
-            for (k, right) in chain[..=j].iter().enumerate() {
-                if val == &(left + right) {
-                    // Found the pair!
-                    if j == k {
-                        steps.push(Step::Double { index: j })
-                    } else {
-                        steps.push(Step::Add { left: j, right: k });
+        let mut pair = None;
+        if increasing {
+            // Search the sorted prefix in linear time. Continue after a match
+            // to retain the smallest larger index, as in the nested search.
+            let (mut left, mut right) = (0, i - 1);
+            while left <= right {
+                let sum = &chain[left] + &chain[right];
+                if sum < *val {
+                    left += 1;
+                } else {
+                    if sum == *val {
+                        pair = Some((right, left));
                     }
-                    break 'search;
+                    if right == 0 {
+                        break;
+                    }
+                    right -= 1;
+                }
+            }
+        } else {
+            // Find the pair of previous values that add to this one
+            'search: for (j, left) in chain[..i].iter().enumerate() {
+                for (k, right) in chain[..=j].iter().enumerate() {
+                    if val == &(left + right) {
+                        // Found the pair!
+                        pair = Some((j, k));
+                        break 'search;
+                    }
                 }
             }
         }
 
         // We must always find a matching pair
-        if steps.len() != i {
-            return Err(Error::InvalidChain);
-        }
+        steps.push(match pair {
+            Some((j, k)) if j == k => Step::Double { index: j },
+            Some((j, k)) => Step::Add { left: j, right: k },
+            None => return Err(Error::InvalidChain),
+        });
     }
 
     Ok(steps)
@@ -202,6 +222,59 @@ mod tests {
                 Step::Add { left: 8, right: 4 },
             ]),
         );
+    }
+
+    fn reference_steps(chain: &[BigUint]) -> Result<Vec<Step>, Error> {
+        if chain.first() != Some(&BigUint::from(1u32)) {
+            return Err(Error::InvalidChain);
+        }
+        let mut steps = Vec::new();
+        for i in 1..chain.len() {
+            let mut found = None;
+            'search: for j in 0..i {
+                for k in 0..=j {
+                    if &chain[j] + &chain[k] == chain[i] {
+                        found = Some(if j == k {
+                            Step::Double { index: j }
+                        } else {
+                            Step::Add { left: j, right: k }
+                        });
+                        break 'search;
+                    }
+                }
+            }
+            steps.push(found.ok_or(Error::InvalidChain)?);
+        }
+        Ok(steps)
+    }
+
+    #[test]
+    fn conversion_matches_original_search() {
+        // Includes valid and invalid sorted sequences and ambiguous sums.
+        for mask in 0..(1u32 << 12) {
+            let mut chain = vec![BigUint::from(1u32)];
+            for bit in 0..12 {
+                if mask & (1 << bit) != 0 {
+                    chain.push(BigUint::from(bit + 2u32));
+                }
+            }
+            assert_eq!(build_steps(chain.clone()), reference_steps(&chain));
+        }
+        for values in &[
+            vec![],
+            vec![1u32],
+            vec![1, 2, 4, 3, 6],
+            vec![1, 2, 2, 4],
+            vec![1, 0, 2],
+            vec![1, 2, 4, 3, 9],
+        ] {
+            let chain: Vec<_> = values.iter().map(|v| BigUint::from(*v)).collect();
+            assert_eq!(build_steps(chain.clone()), reference_steps(&chain));
+        }
+        for n in 1..=1024u32 {
+            let chain = super::find_shortest_chain(BigUint::from(n));
+            assert_eq!(build_steps(chain.clone()), reference_steps(&chain));
+        }
     }
 
     #[test]
