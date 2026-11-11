@@ -104,6 +104,11 @@ pub fn find_shortest_chain(n: BigUint) -> Vec<BigUint> {
 /// Equal-cost ties prefer BBBD.
 fn find_chain(n: &BigUint, cost_model: CostModel) -> Vec<BigUint> {
     let mut best = prune_chain(bbbd::find_shortest_chain(n.clone()));
+    assert_eq!(
+        best.last(),
+        Some(n),
+        "generated chain must end at the target"
+    );
     let algorithms: &[fn(&BigUint, CostModel) -> Vec<BigUint>] = &[
         bos_coster::find_chain,
         cwm_asa::find_chain,
@@ -111,6 +116,11 @@ fn find_chain(n: &BigUint, cost_model: CostModel) -> Vec<BigUint> {
     ];
     for algorithm in algorithms {
         let candidate = prune_chain(algorithm(n, cost_model));
+        assert_eq!(
+            candidate.last(),
+            Some(n),
+            "generated chain must end at the target"
+        );
         if cost_model.cost(&candidate) < cost_model.cost(&best) {
             best = candidate;
         }
@@ -198,6 +208,7 @@ pub enum Step {
 
 /// Converts an addition chain into a series of steps.
 #[allow(clippy::needless_pass_by_value)]
+#[allow(clippy::useless_let_if_seq)]
 pub fn build_steps(chain: Vec<BigUint>) -> Result<Vec<Step>, Error> {
     match chain.first() {
         Some(n) if n.is_one() => (),
