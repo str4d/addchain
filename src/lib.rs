@@ -103,19 +103,72 @@ pub fn find_shortest_chain(n: BigUint) -> Vec<BigUint> {
 ///
 /// Equal-cost ties prefer BBBD.
 fn find_chain(n: &BigUint, cost_model: CostModel) -> Vec<BigUint> {
-    let mut best = bbbd::find_shortest_chain(n.clone());
+    let mut best = prune_chain(bbbd::find_shortest_chain(n.clone()));
     let algorithms: &[fn(&BigUint, CostModel) -> Vec<BigUint>] = &[
         bos_coster::find_chain,
         cwm_asa::find_chain,
         ky_hybrid::find_chain,
     ];
     for algorithm in algorithms {
-        let candidate = algorithm(n, cost_model);
+        let candidate = prune_chain(algorithm(n, cost_model));
         if cost_model.cost(&candidate) < cost_model.cost(&best) {
             best = candidate;
         }
     }
     best
+}
+
+/// Retains only values needed by the target's selected operand dependencies.
+fn prune_chain(chain: Vec<BigUint>) -> Vec<BigUint> {
+    debug_assert!(chain.windows(2).all(|pair| pair[0] < pair[1]));
+    let mut needed = vec![false; chain.len()];
+    needed[chain.len() - 1] = true;
+    for i in (1..chain.len()).rev() {
+        if needed[i] {
+            let (left, right) =
+                increasing_pair(&chain[..i], &chain[i]).expect("generated chain is valid");
+            needed[left] = true;
+            needed[right] = true;
+        }
+    }
+    chain
+        .into_iter()
+        .zip(needed)
+        .filter_map(|(value, needed)| if needed { Some(value) } else { None })
+        .collect()
+}
+
+/// Finds the pair with the smallest larger index in a strictly increasing prefix.
+fn increasing_pair(prefix: &[BigUint], target: &BigUint) -> Option<(usize, usize)> {
+    // The larger operand must be at least half the target.
+    let mut low = 0;
+    let mut high = prefix.len();
+    while low < high {
+        let middle = low + (high - low) / 2;
+        if &prefix[middle] + &prefix[middle] < *target {
+            low = middle + 1;
+        } else {
+            high = middle;
+        }
+    }
+    if low == prefix.len() {
+        return None;
+    }
+    let (mut larger, mut smaller) = (low, low);
+    while larger < prefix.len() {
+        let sum = &prefix[larger] + &prefix[smaller];
+        match sum.cmp(target) {
+            std::cmp::Ordering::Equal => return Some((larger, smaller)),
+            std::cmp::Ordering::Less => larger += 1,
+            std::cmp::Ordering::Greater => {
+                if smaller == 0 {
+                    return None;
+                }
+                smaller -= 1;
+            }
+        }
+    }
+    None
 }
 
 /// The relative cost of doubling and addition when selecting a chain.
@@ -157,23 +210,7 @@ pub fn build_steps(chain: Vec<BigUint>) -> Result<Vec<Step>, Error> {
     for (i, val) in chain.iter().enumerate().skip(1) {
         let mut pair = None;
         if increasing {
-            // Search the sorted prefix in linear time. Continue after a match
-            // to retain the smallest larger index, as in the nested search.
-            let (mut left, mut right) = (0, i - 1);
-            while left <= right {
-                let sum = &chain[left] + &chain[right];
-                if sum < *val {
-                    left += 1;
-                } else {
-                    if sum == *val {
-                        pair = Some((right, left));
-                    }
-                    if right == 0 {
-                        break;
-                    }
-                    right -= 1;
-                }
-            }
+            pair = increasing_pair(&chain[..i], val);
         } else {
             // Find the pair of previous values that add to this one
             'search: for (j, left) in chain[..i].iter().enumerate() {
@@ -221,13 +258,13 @@ mod tests {
         );
         for value in &[1u32, 2, 87, 255, 384] {
             let n = BigUint::from(*value);
-            let bbbd = crate::bbbd::find_shortest_chain(n.clone());
-            let cwm = crate::cwm_asa::find_chain(&n, CostModel::Same);
+            let bbbd = super::prune_chain(crate::bbbd::find_shortest_chain(n.clone()));
+            let cwm = super::prune_chain(crate::cwm_asa::find_chain(&n, CostModel::Same));
             let mut expected = if cwm.len() < bbbd.len() { cwm } else { bbbd };
             let algorithms: &[fn(&BigUint, CostModel) -> Vec<BigUint>] =
                 &[crate::bos_coster::find_chain, crate::ky_hybrid::find_chain];
             for algorithm in algorithms {
-                let candidate = algorithm(&n, CostModel::Same);
+                let candidate = super::prune_chain(algorithm(&n, CostModel::Same));
                 if candidate.len() < expected.len() {
                     expected = candidate;
                 }
@@ -355,8 +392,88 @@ mod tests {
         let chain = super::find_shortest_chain(n.clone());
         assert_eq!(chain.last(), Some(&n));
         assert!(chain.windows(2).all(|pair| pair[0] < pair[1]));
-        assert!(chain.len() - 1 <= 264);
+        assert!(chain.len() - 1 <= 263);
         assert!(build_steps(chain).is_ok());
+    }
+
+    #[test]
+    fn increasing_pair_matches_nested_search() {
+        for mask in 0..(1u32 << 10) {
+            let prefix: Vec<_> = (0..10u32)
+                .filter(|bit| mask & (1u32 << bit) != 0)
+                .map(|v| BigUint::from(v + 1))
+                .collect();
+            for target in 0..=21u32 {
+                let target = BigUint::from(target);
+                let mut expected = None;
+                'search: for j in 0..prefix.len() {
+                    for k in 0..=j {
+                        if &prefix[j] + &prefix[k] == target {
+                            expected = Some((j, k));
+                            break 'search;
+                        }
+                    }
+                }
+                assert_eq!(super::increasing_pair(&prefix, &target), expected);
+            }
+        }
+    }
+
+    #[test]
+    fn pruning_removes_unused_dependencies() {
+        let chain = [1u32, 2, 3, 4, 6, 8, 12]
+            .iter()
+            .map(|v| BigUint::from(*v))
+            .collect();
+        let expected: Vec<_> = [1u32, 2, 3, 6, 12]
+            .iter()
+            .map(|v| BigUint::from(*v))
+            .collect();
+        let pruned = super::prune_chain(chain);
+        assert_eq!(pruned, expected);
+        assert_eq!(super::prune_chain(pruned.clone()), pruned);
+        assert!(build_steps(pruned).is_ok());
+        assert_eq!(
+            super::prune_chain(vec![BigUint::from(1u32)]),
+            vec![BigUint::from(1u32)]
+        );
+    }
+
+    #[test]
+    fn pruning_supplied_exponent() {
+        use super::CostModel;
+        let n = BigUint::parse_bytes(
+            b"39f6d3a994cebea4199cec0404d0ec02a9ded2017fff2dff7fffffff",
+            16,
+        )
+        .unwrap();
+        let candidates = vec![
+            ("BBBD", crate::bbbd::find_shortest_chain(n.clone())),
+            (
+                "Bos–Coster",
+                crate::bos_coster::find_chain(&n, CostModel::Same),
+            ),
+            ("CWM-ASA", crate::cwm_asa::find_chain(&n, CostModel::Same)),
+            (
+                "KY Hybrid",
+                crate::ky_hybrid::find_chain(&n, CostModel::Same),
+            ),
+        ];
+        for (name, chain) in candidates {
+            let original = chain.len();
+            let pruned = super::prune_chain(chain);
+            println!(
+                "{}: {} -> {} operations",
+                name,
+                original - 1,
+                pruned.len() - 1
+            );
+            assert!(pruned.len() <= original);
+            assert_eq!(pruned.last(), Some(&n));
+            assert!(pruned.windows(2).all(|w| w[0] < w[1]));
+            assert!(build_steps(pruned.clone()).is_ok());
+            assert_eq!(super::prune_chain(pruned.clone()), pruned);
+        }
     }
 
     #[test]

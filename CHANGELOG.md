@@ -16,6 +16,8 @@ and this project adheres to Rust's notion of
 ### Changed
 - Reduced `build_steps` pair-search work from cubic to quadratic in chain length
   for strictly increasing chains.
+- Unused intermediate values are now removed from each algorithm's result before
+  selecting the lowest-cost chain.
 
 ## [0.2.1] - 2026-02-26
 ### Fixed
