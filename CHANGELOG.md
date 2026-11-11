@@ -5,6 +5,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to Rust's notion of
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+### Added
+- Additional algorithms:
+  - Bos–Coster-derived window and addition-sequence heuristics, including
+    minimum-count/product window distribution and prefix-value-bounded windows
+  - Cross Window Method with Addition Sequence Algorithm
+  - Kunihiro–Yamamoto Hybrid method
+
+### Changed
+- Reduced `build_steps` pair-search work from cubic to quadratic in chain length
+  for strictly increasing chains.
+- Unused intermediate values are now removed from each algorithm's result before
+  selecting the lowest-cost chain.
+
 ## [0.2.1] - 2026-02-26
 ### Fixed
 - Fixed an edge case where duplicate values would occur in some addition chains.
