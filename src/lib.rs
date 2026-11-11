@@ -81,6 +81,9 @@ use num_bigint::BigUint;
 use num_traits::One;
 
 mod bbbd;
+mod bos_coster;
+mod cwm_asa;
+mod ky_hybrid;
 
 /// The error kinds returned by `addchain` APIs.
 #[derive(Debug, PartialEq)]
@@ -91,8 +94,109 @@ pub enum Error {
 
 /// Returns the shortest addition chain we can find for the given number, using all
 /// available algorithms.
+#[allow(clippy::needless_pass_by_value)]
 pub fn find_shortest_chain(n: BigUint) -> Vec<BigUint> {
-    bbbd::find_shortest_chain(n)
+    find_chain(&n, CostModel::Same)
+}
+
+/// Returns the lowest-cost addition chain we can find using all available algorithms.
+///
+/// Equal-cost ties prefer BBBD.
+fn find_chain(n: &BigUint, cost_model: CostModel) -> Vec<BigUint> {
+    let mut best = prune_chain(bbbd::find_shortest_chain(n.clone()));
+    assert_eq!(
+        best.last(),
+        Some(n),
+        "generated chain must end at the target"
+    );
+    let algorithms: &[fn(&BigUint, CostModel) -> Vec<BigUint>] = &[
+        bos_coster::find_chain,
+        cwm_asa::find_chain,
+        ky_hybrid::find_chain,
+    ];
+    for algorithm in algorithms {
+        let candidate = prune_chain(algorithm(n, cost_model));
+        assert_eq!(
+            candidate.last(),
+            Some(n),
+            "generated chain must end at the target"
+        );
+        if cost_model.cost(&candidate) < cost_model.cost(&best) {
+            best = candidate;
+        }
+    }
+    best
+}
+
+/// Retains only values needed by the target's selected operand dependencies.
+fn prune_chain(chain: Vec<BigUint>) -> Vec<BigUint> {
+    debug_assert!(chain.windows(2).all(|pair| pair[0] < pair[1]));
+    let mut needed = vec![false; chain.len()];
+    needed[chain.len() - 1] = true;
+    for i in (1..chain.len()).rev() {
+        if needed[i] {
+            let (left, right) =
+                increasing_pair(&chain[..i], &chain[i]).expect("generated chain is valid");
+            needed[left] = true;
+            needed[right] = true;
+        }
+    }
+    chain
+        .into_iter()
+        .zip(needed)
+        .filter_map(|(value, needed)| if needed { Some(value) } else { None })
+        .collect()
+}
+
+/// Finds the pair with the smallest larger index in a strictly increasing prefix.
+fn increasing_pair(prefix: &[BigUint], target: &BigUint) -> Option<(usize, usize)> {
+    // The larger operand must be at least half the target.
+    let mut low = 0;
+    let mut high = prefix.len();
+    while low < high {
+        let middle = low + (high - low) / 2;
+        if &prefix[middle] + &prefix[middle] < *target {
+            low = middle + 1;
+        } else {
+            high = middle;
+        }
+    }
+    if low == prefix.len() {
+        return None;
+    }
+    let (mut larger, mut smaller) = (low, low);
+    while larger < prefix.len() {
+        let sum = &prefix[larger] + &prefix[smaller];
+        match sum.cmp(target) {
+            std::cmp::Ordering::Equal => return Some((larger, smaller)),
+            std::cmp::Ordering::Less => larger += 1,
+            std::cmp::Ordering::Greater => {
+                if smaller == 0 {
+                    return None;
+                }
+                smaller -= 1;
+            }
+        }
+    }
+    None
+}
+
+/// The relative cost of doubling and addition when selecting a chain.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CostModel {
+    /// Doubling and addition have the same cost, so fewer steps is better.
+    Same,
+}
+
+impl CostModel {
+    /// Scores a valid, nonempty addition chain.
+    ///
+    /// Smaller costs are better.
+    fn cost(self, chain: &[BigUint]) -> usize {
+        match self {
+            CostModel::Same => chain.len() - 1,
+        }
+    }
 }
 
 /// A single step in computing an addition chain.
@@ -103,34 +207,39 @@ pub enum Step {
 }
 
 /// Converts an addition chain into a series of steps.
+#[allow(clippy::useless_let_if_seq)]
 pub fn build_steps(chain: &[BigUint]) -> Result<Vec<Step>, Error> {
     match chain.first() {
         Some(n) if n.is_one() => (),
         _ => return Err(Error::InvalidChain),
     }
 
-    let mut steps = vec![];
+    let increasing = chain.windows(2).all(|pair| pair[0] < pair[1]);
+    let mut steps = Vec::with_capacity(chain.len() - 1);
 
     for (i, val) in chain.iter().enumerate().skip(1) {
-        // Find the pair of previous values that add to this one
-        'search: for (j, left) in chain[..i].iter().enumerate() {
-            for (k, right) in chain[..=j].iter().enumerate() {
-                if val == &(left + right) {
-                    // Found the pair!
-                    if j == k {
-                        steps.push(Step::Double { index: j })
-                    } else {
-                        steps.push(Step::Add { left: j, right: k });
+        let mut pair = None;
+        if increasing {
+            pair = increasing_pair(&chain[..i], val);
+        } else {
+            // Find the pair of previous values that add to this one
+            'search: for (j, left) in chain[..i].iter().enumerate() {
+                for (k, right) in chain[..=j].iter().enumerate() {
+                    if val == &(left + right) {
+                        // Found the pair!
+                        pair = Some((j, k));
+                        break 'search;
                     }
-                    break 'search;
                 }
             }
         }
 
         // We must always find a matching pair
-        if steps.len() != i {
-            return Err(Error::InvalidChain);
-        }
+        steps.push(match pair {
+            Some((j, k)) if j == k => Step::Double { index: j },
+            Some((j, k)) => Step::Add { left: j, right: k },
+            None => return Err(Error::InvalidChain),
+        });
     }
 
     Ok(steps)
@@ -147,6 +256,33 @@ mod tests {
     use num_bigint::BigUint;
 
     use super::{build_steps, Error, Step};
+
+    #[test]
+    fn equal_cost_model() {
+        use super::{find_chain, find_shortest_chain, CostModel};
+
+        assert_eq!(CostModel::Same.cost(&[BigUint::from(1u32)]), 0);
+        assert_eq!(
+            CostModel::Same.cost(&[BigUint::from(1u32), BigUint::from(2u32)]),
+            1
+        );
+        for value in &[1u32, 2, 87, 255, 384] {
+            let n = BigUint::from(*value);
+            let bbbd = super::prune_chain(crate::bbbd::find_shortest_chain(n.clone()));
+            let cwm = super::prune_chain(crate::cwm_asa::find_chain(&n, CostModel::Same));
+            let mut expected = if cwm.len() < bbbd.len() { cwm } else { bbbd };
+            let algorithms: &[fn(&BigUint, CostModel) -> Vec<BigUint>] =
+                &[crate::bos_coster::find_chain, crate::ky_hybrid::find_chain];
+            for algorithm in algorithms {
+                let candidate = super::prune_chain(algorithm(&n, CostModel::Same));
+                if candidate.len() < expected.len() {
+                    expected = candidate;
+                }
+            }
+            assert_eq!(find_chain(&n, CostModel::Same), expected);
+            assert_eq!(find_shortest_chain(n), expected);
+        }
+    }
 
     #[test]
     fn steps_from_valid_chains() {
@@ -201,6 +337,153 @@ mod tests {
                 Step::Add { left: 8, right: 4 },
             ]),
         );
+    }
+
+    fn reference_steps(chain: &[BigUint]) -> Result<Vec<Step>, Error> {
+        if chain.first() != Some(&BigUint::from(1u32)) {
+            return Err(Error::InvalidChain);
+        }
+        let mut steps = Vec::new();
+        for i in 1..chain.len() {
+            let mut found = None;
+            'search: for j in 0..i {
+                for k in 0..=j {
+                    if &chain[j] + &chain[k] == chain[i] {
+                        found = Some(if j == k {
+                            Step::Double { index: j }
+                        } else {
+                            Step::Add { left: j, right: k }
+                        });
+                        break 'search;
+                    }
+                }
+            }
+            steps.push(found.ok_or(Error::InvalidChain)?);
+        }
+        Ok(steps)
+    }
+
+    #[test]
+    fn conversion_matches_original_search() {
+        // Includes valid and invalid sorted sequences and ambiguous sums.
+        for mask in 0..(1u32 << 12) {
+            let mut chain = vec![BigUint::from(1u32)];
+            for bit in 0..12 {
+                if mask & (1 << bit) != 0 {
+                    chain.push(BigUint::from(bit + 2u32));
+                }
+            }
+            assert_eq!(build_steps(&chain), reference_steps(&chain));
+        }
+        for values in &[
+            vec![],
+            vec![1u32],
+            vec![1, 2, 4, 3, 6],
+            vec![1, 2, 2, 4],
+            vec![1, 0, 2],
+            vec![1, 2, 4, 3, 9],
+        ] {
+            let chain: Vec<_> = values.iter().map(|v| BigUint::from(*v)).collect();
+            assert_eq!(build_steps(&chain), reference_steps(&chain));
+        }
+        for n in 1..=1024u32 {
+            let chain = super::find_shortest_chain(BigUint::from(n));
+            assert_eq!(build_steps(&chain), reference_steps(&chain));
+        }
+    }
+
+    #[test]
+    fn supplied_exponent() {
+        let n = BigUint::parse_bytes(
+            b"39f6d3a994cebea4199cec0404d0ec02a9ded2017fff2dff7fffffff",
+            16,
+        )
+        .unwrap();
+        let chain = super::find_shortest_chain(n.clone());
+        assert_eq!(chain.last(), Some(&n));
+        assert!(chain.windows(2).all(|pair| pair[0] < pair[1]));
+        assert!(chain.len() - 1 <= 263);
+        assert!(build_steps(&chain).is_ok());
+    }
+
+    #[test]
+    fn increasing_pair_matches_nested_search() {
+        for mask in 0..(1u32 << 10) {
+            let prefix: Vec<_> = (0..10u32)
+                .filter(|bit| mask & (1u32 << bit) != 0)
+                .map(|v| BigUint::from(v + 1))
+                .collect();
+            for target in 0..=21u32 {
+                let target = BigUint::from(target);
+                let mut expected = None;
+                'search: for j in 0..prefix.len() {
+                    for k in 0..=j {
+                        if &prefix[j] + &prefix[k] == target {
+                            expected = Some((j, k));
+                            break 'search;
+                        }
+                    }
+                }
+                assert_eq!(super::increasing_pair(&prefix, &target), expected);
+            }
+        }
+    }
+
+    #[test]
+    fn pruning_removes_unused_dependencies() {
+        let chain = [1u32, 2, 3, 4, 6, 8, 12]
+            .iter()
+            .map(|v| BigUint::from(*v))
+            .collect();
+        let expected: Vec<_> = [1u32, 2, 3, 6, 12]
+            .iter()
+            .map(|v| BigUint::from(*v))
+            .collect();
+        let pruned = super::prune_chain(chain);
+        assert_eq!(pruned, expected);
+        assert_eq!(super::prune_chain(pruned.clone()), pruned);
+        assert!(build_steps(&pruned).is_ok());
+        assert_eq!(
+            super::prune_chain(vec![BigUint::from(1u32)]),
+            vec![BigUint::from(1u32)]
+        );
+    }
+
+    #[test]
+    fn pruning_supplied_exponent() {
+        use super::CostModel;
+        let n = BigUint::parse_bytes(
+            b"39f6d3a994cebea4199cec0404d0ec02a9ded2017fff2dff7fffffff",
+            16,
+        )
+        .unwrap();
+        let candidates = vec![
+            ("BBBD", crate::bbbd::find_shortest_chain(n.clone())),
+            (
+                "Bos–Coster",
+                crate::bos_coster::find_chain(&n, CostModel::Same),
+            ),
+            ("CWM-ASA", crate::cwm_asa::find_chain(&n, CostModel::Same)),
+            (
+                "KY Hybrid",
+                crate::ky_hybrid::find_chain(&n, CostModel::Same),
+            ),
+        ];
+        for (name, chain) in candidates {
+            let original = chain.len();
+            let pruned = super::prune_chain(chain);
+            println!(
+                "{}: {} -> {} operations",
+                name,
+                original - 1,
+                pruned.len() - 1
+            );
+            assert!(pruned.len() <= original);
+            assert_eq!(pruned.last(), Some(&n));
+            assert!(pruned.windows(2).all(|w| w[0] < w[1]));
+            assert!(build_steps(&pruned).is_ok());
+            assert_eq!(super::prune_chain(pruned.clone()), pruned);
+        }
     }
 
     #[test]
