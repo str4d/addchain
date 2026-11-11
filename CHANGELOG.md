@@ -6,6 +6,8 @@ and this project adheres to Rust's notion of
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [0.2.2] - 2026-11-11
 ### Added
 - Additional algorithms:
   - Bos–Coster-derived window and addition-sequence heuristics, including
