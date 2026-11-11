@@ -7,7 +7,7 @@ and this project adheres to Rust's notion of
 
 ## [Unreleased]
 
-## [0.2.2] - 2026-11-11
+## [0.2.2], [0.3.1] - 2026-11-11
 ### Added
 - Additional algorithms:
   - Bos–Coster-derived window and addition-sequence heuristics, including
