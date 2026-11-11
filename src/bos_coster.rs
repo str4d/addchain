@@ -2,10 +2,8 @@
 //! CWI Report CS-R8945 (1989), §§4–6, pp. 3–7.
 //! https://ir.cwi.nl/pub/5809/5809D.pdf
 //!
-//! Section 5 splits the exponent into windows, computes an addition sequence
-//! containing their values, then doubles and adds the windows into place. We
-//! use left-to-right odd windows and search widths 2–16; the report
-//! gives properties of a better window distribution, but not its procedure.
+//! Uses greedy and minimum-count/product odd windows of widths 1–16 (Section 5), with
+//! Approximation, Division, Halving, and Lucas reductions (Section 6).
 //!
 //! `choose_reduction` uses a local deterministic score in place of the paper's
 //! incompletely specified weight function.
@@ -28,14 +26,20 @@ pub(super) fn find_chain(n: &BigUint, cost_model: crate::CostModel) -> Vec<BigUi
         return vec![BigUint::one()];
     }
 
-    // Include a binary chain: window precomputation can otherwise outweigh
-    // the long part, particularly for small or very sparse exponents.
+    // Width 1 supplies the binary chain.
     let mut best = window_chain(n, 1);
     let maximum = (n.bits() as usize).min(16);
     for width in 2..=maximum {
-        let candidate = window_chain(n, width);
-        if cost_model.cost(&candidate) < cost_model.cost(&best) {
-            best = candidate;
+        for optimized in &[false, true] {
+            let chunks = if *optimized {
+                optimized_windows(n, width)
+            } else {
+                greedy_windows(n, width)
+            };
+            let candidate = assemble(n, &chunks);
+            if cost_model.cost(&candidate) < cost_model.cost(&best) {
+                best = candidate;
+            }
         }
     }
     best
@@ -45,6 +49,10 @@ pub(super) fn find_chain(n: &BigUint, cost_model: crate::CostModel) -> Vec<BigUi
 /// subsequent windows consume their bit length in doublings and one addition.
 /// Zero bits between windows consume only doublings.
 fn window_chain(n: &BigUint, width: usize) -> Vec<BigUint> {
+    assemble(n, &greedy_windows(n, width))
+}
+
+fn greedy_windows(n: &BigUint, width: usize) -> Vec<(usize, BigUint)> {
     let bits = n.bits() as usize;
     let mut chunks = Vec::new();
     let mut remaining = bits;
@@ -64,8 +72,61 @@ fn window_chain(n: &BigUint, width: usize) -> Vec<BigUint> {
         chunks.push((length, (n >> bottom) & mask));
         remaining = bottom;
     }
-    let first = chunks[0].1.clone();
+    chunks
+}
 
+/// Section 5, p. 5: minimize window count, then the sum of window logarithms.
+/// A suffix dynamic program compares exact products instead of floating-point
+/// logarithms. At most `width` transitions are examined per bit position.
+fn optimized_windows(n: &BigUint, width: usize) -> Vec<(usize, BigUint)> {
+    let binary = n.to_str_radix(2);
+    let bits = binary.as_bytes();
+    let mut counts = vec![0usize; bits.len() + 1];
+    let mut products = vec![BigUint::one(); bits.len() + 1];
+    let mut lengths = vec![1usize; bits.len()];
+    for start in (0..bits.len()).rev() {
+        if bits[start] == b'0' {
+            counts[start] = counts[start + 1];
+            products[start] = products[start + 1].clone();
+            continue;
+        }
+        let mut value = 0u32;
+        let mut best: Option<(usize, BigUint, usize)> = None;
+        for end in start..bits.len().min(start + width) {
+            value = value * 2 + u32::from(bits[end] == b'1');
+            if bits[end] == b'0' {
+                continue;
+            }
+            let count = 1 + counts[end + 1];
+            let product = BigUint::from(value) * &products[end + 1];
+            let better = match best {
+                Some((old_count, ref old_product, _)) => {
+                    count < old_count || (count == old_count && product < *old_product)
+                }
+                None => true,
+            };
+            if better {
+                best = Some((count, product, end - start + 1));
+            }
+        }
+        let (count, product, length) = best.unwrap();
+        counts[start] = count;
+        products[start] = product;
+        lengths[start] = length;
+    }
+    let mut chunks = Vec::new();
+    let mut position = 0;
+    while position < bits.len() {
+        let length = lengths[position];
+        let value = BigUint::parse_bytes(&bits[position..position + length], 2).unwrap();
+        chunks.push((length, value));
+        position += length;
+    }
+    chunks
+}
+
+fn assemble(n: &BigUint, chunks: &[(usize, BigUint)]) -> Vec<BigUint> {
+    let first = chunks[0].1.clone();
     let targets: BTreeSet<_> = chunks
         .iter()
         .filter(|(_, value)| !value.is_zero())
@@ -251,6 +312,36 @@ mod tests {
         let sequence = addition_sequence([4u32, 23, 4, 23, 17].iter().map(|&x| x.into()));
         valid(&sequence, &BigUint::from(23u32));
         assert!(sequence.contains(&BigUint::from(17u32)));
+    }
+
+    #[test]
+    fn optimized_distribution() {
+        use super::{assemble, greedy_windows, optimized_windows};
+        let mut improvements = 0;
+        for value in 1..=512u32 {
+            let n = BigUint::from(value);
+            for width in 2..=8 {
+                let greedy = greedy_windows(&n, width);
+                let optimized = optimized_windows(&n, width);
+                let objective = |chunks: &[(usize, BigUint)]| {
+                    let nonzero: Vec<_> = chunks.iter().filter(|c| !c.1.is_zero()).collect();
+                    let product = nonzero.iter().fold(BigUint::one(), |p, c| p * &c.1);
+                    (nonzero.len(), product)
+                };
+                assert!(objective(&optimized) <= objective(&greedy));
+                let greedy = assemble(&n, &greedy);
+                let optimized = assemble(&n, &optimized);
+                valid(&optimized, &n);
+                if optimized.len() < greedy.len() {
+                    improvements += 1;
+                }
+            }
+        }
+        assert!(improvements > 0);
+        println!(
+            "optimized distribution improves {} small parameter cases",
+            improvements
+        );
     }
 
     #[test]
