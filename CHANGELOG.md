@@ -9,7 +9,7 @@ and this project adheres to Rust's notion of
 ### Added
 - Additional algorithms:
   - Bos–Coster-derived window and addition-sequence heuristics, including
-    minimum-count/product window distribution
+    minimum-count/product window distribution and prefix-value-bounded windows
   - Cross Window Method with Addition Sequence Algorithm
   - Kunihiro–Yamamoto Hybrid method
 

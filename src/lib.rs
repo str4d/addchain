@@ -355,7 +355,7 @@ mod tests {
         let chain = super::find_shortest_chain(n.clone());
         assert_eq!(chain.last(), Some(&n));
         assert!(chain.windows(2).all(|pair| pair[0] < pair[1]));
-        assert!(chain.len() - 1 <= 266);
+        assert!(chain.len() - 1 <= 264);
         assert!(build_steps(chain).is_ok());
     }
 

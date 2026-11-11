@@ -2,8 +2,9 @@
 //! CWI Report CS-R8945 (1989), §§4–6, pp. 3–7.
 //! https://ir.cwi.nl/pub/5809/5809D.pdf
 //!
-//! Uses greedy and minimum-count/product odd windows of widths 1–16 (Section 5), with
-//! Approximation, Division, Halving, and Lucas reductions (Section 6).
+//! Uses greedy, minimum-count/product, and prefix-value-bounded odd windows
+//! of widths 1–16 (Section 5), with Approximation, Division, Halving, and Lucas
+//! reductions (Section 6).
 //!
 //! `choose_reduction` uses a local deterministic score in place of the paper's
 //! incompletely specified weight function.
@@ -30,11 +31,11 @@ pub(super) fn find_chain(n: &BigUint, cost_model: crate::CostModel) -> Vec<BigUi
     let mut best = window_chain(n, 1);
     let maximum = (n.bits() as usize).min(16);
     for width in 2..=maximum {
-        for optimized in &[false, true] {
-            let chunks = if *optimized {
-                optimized_windows(n, width)
-            } else {
-                greedy_windows(n, width)
+        for method in 0..3 {
+            let chunks = match method {
+                0 => greedy_windows(n, width),
+                1 => optimized_windows(n, width),
+                _ => maximum_value_windows(n, width),
             };
             let candidate = assemble(n, &chunks);
             if cost_model.cost(&candidate) < cost_model.cost(&best) {
@@ -79,6 +80,17 @@ fn greedy_windows(n: &BigUint, width: usize) -> Vec<(usize, BigUint)> {
 /// A suffix dynamic program compares exact products instead of floating-point
 /// logarithms. At most `width` transitions are examined per bit position.
 fn optimized_windows(n: &BigUint, width: usize) -> Vec<(usize, BigUint)> {
+    bounded_windows(n, width, (1u32 << width) - 1)
+}
+
+/// Section 5, p. 5: bound window values by the exponent's `width`-bit prefix.
+fn maximum_value_windows(n: &BigUint, width: usize) -> Vec<(usize, BigUint)> {
+    let binary = n.to_str_radix(2);
+    let prefix = u32::from_str_radix(&binary[..width.min(binary.len())], 2).unwrap();
+    bounded_windows(n, width, prefix)
+}
+
+fn bounded_windows(n: &BigUint, width: usize, maximum: u32) -> Vec<(usize, BigUint)> {
     let binary = n.to_str_radix(2);
     let bits = binary.as_bytes();
     let mut counts = vec![0usize; bits.len() + 1];
@@ -94,6 +106,9 @@ fn optimized_windows(n: &BigUint, width: usize) -> Vec<(usize, BigUint)> {
         let mut best: Option<(usize, BigUint, usize)> = None;
         for end in start..bits.len().min(start + width) {
             value = value * 2 + u32::from(bits[end] == b'1');
+            if value > maximum {
+                break;
+            }
             if bits[end] == b'0' {
                 continue;
             }
@@ -341,6 +356,68 @@ mod tests {
         println!(
             "optimized distribution improves {} small parameter cases",
             improvements
+        );
+    }
+
+    #[test]
+    #[allow(clippy::op_ref)]
+    fn maximum_value_bounds_and_reconstruction() {
+        use super::{assemble, maximum_value_windows};
+        for value in 1..=255u32 {
+            let n = BigUint::from(value);
+            for width in 1..=8 {
+                let chunks = maximum_value_windows(&n, width);
+                let binary = n.to_str_radix(2);
+                let maximum =
+                    BigUint::parse_bytes(&binary.as_bytes()[..width.min(binary.len())], 2).unwrap();
+                let mut reconstructed = BigUint::from(0u32);
+                for (length, window) in &chunks {
+                    assert!(window <= &maximum);
+                    reconstructed = (reconstructed << *length) + window;
+                }
+                assert_eq!(reconstructed, n);
+                valid(&assemble(&n, &chunks), &n);
+            }
+        }
+    }
+
+    #[test]
+    fn maximum_value_improves_supplied_exponent() {
+        use super::{assemble, greedy_windows, maximum_value_windows, optimized_windows};
+        let n = BigUint::parse_bytes(
+            b"39f6d3a994cebea4199cec0404d0ec02a9ded2017fff2dff7fffffff",
+            16,
+        )
+        .unwrap();
+        let start = std::time::Instant::now();
+        let mut previous = n.bits() as usize * 2;
+        let mut bounded = previous;
+        for width in 1..=16 {
+            previous = previous.min(assemble(&n, &greedy_windows(&n, width)).len() - 1);
+            previous = previous.min(assemble(&n, &optimized_windows(&n, width)).len() - 1);
+            let candidate = assemble(&n, &maximum_value_windows(&n, width));
+            bounded = bounded.min(candidate.len() - 1);
+            valid(&candidate, &n);
+        }
+        assert_eq!(previous, 266);
+        assert_eq!(bounded, 264);
+        println!("maximum-value comparison: {:?}", start.elapsed());
+        let start = std::time::Instant::now();
+        let result = find_chain(&n, crate::CostModel::Same);
+        let elapsed = start.elapsed();
+        let steps = crate::build_steps(result).unwrap();
+        let doublings = steps
+            .iter()
+            .filter(|s| match s {
+                crate::Step::Double { .. } => true,
+                crate::Step::Add { .. } => false,
+            })
+            .count();
+        println!(
+            "Bos–Coster: {} doublings, {} additions, {:?}",
+            doublings,
+            steps.len() - doublings,
+            elapsed
         );
     }
 
